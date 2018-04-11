@@ -1,6 +1,7 @@
 package me.cloud.driver
 
 import io.vertx.core.http.HttpServer
+import io.vertx.core.json.Json
 import io.vertx.core.logging.LoggerFactory
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -12,6 +13,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.experimental.launch
 import me.cloud.driver.c.API
 import me.cloud.driver.ex.coroutineHandler
+import java.time.LocalDateTime
 
 private val logger = LoggerFactory.getLogger(MainVertical::class.java.name)
 fun RoutingContext.suspendHandler(block: suspend RoutingContext.() -> Unit) = launch(this.vertx().dispatcher()) {
@@ -26,14 +28,22 @@ class MainVertical : CoroutineVerticle() {
         super.start()
         router.route().handler(BodyHandler.create())
         router.route("/*").handler(TimeoutHandler.create())
-//        router.route("/*").handler {
-//            it.response().putHeader("Access-Control-Allow-Origin", "*")
-//            it.response().putHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
-//            it.response().putHeader("Access-Control-Allow-Headers", "Content-Type")
-//            it.response().putHeader("Access-Control-Max-Age", "1800")
-//        }
-        val r = me.cloud.driver.route.Router()
-        router.put(API.Put_Recent).coroutineHandler { r.putRecants(it) }
+        router.route("/*").handler {
+            logger.info("Match route ----------------- " + LocalDateTime.now()
+                    + " ------------------------------")
+            logger.info("Method       : " + it.request().method())
+            logger.info("Path         : " + it.request().uri())
+            logger.info("User-Agent   : " + it.request().getHeader("User-Agent"))
+            val params = it.request().params()
+            logger.info("Params       : " + Json.encode(params?.entries() ?: "[]"))
+            logger.info("Cookie       : " + Json.encode(it.request().getHeader("Cookie") ?: ""))
+            logger.info(
+                    "--------------------------------------------------------------------------------")
+            it.next()
+        }
+        val r = me.cloud.driver.route.Router(vertx)
+        router.put(API.Put_Recommend).coroutineHandler { r.putRecommend(it) }
+        router.get(API.Get_Recommends).coroutineHandler { r.recommends(it) }
 
         val server = awaitResult<HttpServer> { vertx.createHttpServer().requestHandler({ router.accept(it) }).listen(8001, it) }
 
