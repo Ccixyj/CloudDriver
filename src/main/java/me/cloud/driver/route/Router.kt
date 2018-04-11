@@ -78,7 +78,6 @@ class Router(vertx: Vertx) {
     suspend fun recommends(ctx: RoutingContext) {
         var tryCount = ctx.request().getParam("try")?.toIntOrNull() ?: 1
 
-        logger.info("try: $tryCount")
         if (tryCount <= 0) tryCount = 1
         val offset = (tryCount - 1) * PageCount
 
@@ -93,7 +92,6 @@ class Router(vertx: Vertx) {
                     }, it)
         }
 
-        logger.info(array)
         val ff = array.map { obj ->
             val f = Future.future<JsonObject>()
             redisClient.srandmember("${RedisKey.Recommend_Reason}:$obj") {

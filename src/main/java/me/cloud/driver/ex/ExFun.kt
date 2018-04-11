@@ -1,12 +1,14 @@
 package me.cloud.driver.ex
 
 import io.vertx.core.Vertx
+import io.vertx.core.json.Json
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.experimental.Job
 import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.launch
+import me.cloud.driver.vo.ResultBean
 
 
 fun <T> RoutingContext.safeLaunch(fn: suspend () -> T): Job {
@@ -29,7 +31,7 @@ fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit) {
             try {
                 fn(ctx)
             } catch (e: Exception) {
-                ctx.fail(e)
+                ctx.response().end(Json.encode(ResultBean.Error(e.message ?: e.stackTrace.joinToString())))
             }
         }
     }
