@@ -25,19 +25,31 @@ private const val PageCount = 15
 
 class Router(vertx: Vertx) {
 
-    private val redisClient = RedisClient.create(vertx)
+    private val redisClient = RedisClient.create(vertx).apply {
+        this.configGet("*") {
+            if (it.succeeded()) {
+                me.cloud.driver.route.logger.info("redis start success ${it.result()}")
+            } else {
+                me.cloud.driver.route.logger.error("redis start success ${it.cause()}")
+            }
+        }
+    }
+
     fun RoutingContext.render(obj: Any) {
         this.response().putHeader(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8")
         this.response().end(Json.encode(obj))
     }
 
     suspend fun putRecommend(ctx: RoutingContext) {
-        logger.info("putRecommend ${ctx.bodyAsString}")
         val uid = ctx.request().getParam("uid")
         val key = ctx.request().getParam("key")?.trim()
         val reason = ctx.request().getParam("reason")?.trim()
         var isAdd = false
         val score = ctx.safeAsync { awaitResult<String?> { redisClient.zscore(RedisKey.Recommend_Key, key, it) } }
+        logger.info("putRecommend")
+        logger.info("uid :$uid")
+        logger.info("key : $key")
+        logger.info("reason : $reason")
         try {
             if (!uid.isNullOrBlank() && !key.isNullOrBlank()) {
                 val setKey = RedisKey.Recommend_Count + ":$uid"
@@ -59,6 +71,9 @@ class Router(vertx: Vertx) {
             } else {
                 ctx.render(ResultBean.Error("缺少参数"))
             }
+        } catch (e: Exception) {
+            logger.error(e)
+            ctx.fail(e)
         } finally {
             if (isAdd) {
                 redisClient.zadd(RedisKey.Recommend_Key, score.await()?.toDouble()?.inc() ?: 1.0, key, null)
@@ -76,40 +91,47 @@ class Router(vertx: Vertx) {
 
 
     suspend fun recommends(ctx: RoutingContext) {
-        var tryCount = ctx.request().getParam("try")?.toIntOrNull() ?: 1
 
-        if (tryCount <= 0) tryCount = 1
-        val offset = (tryCount - 1) * PageCount
+        try {
+            var tryCount = ctx.request().getParam("try")?.toIntOrNull() ?: 1
+            logger.info("get recommends : $tryCount")
+            if (tryCount <= 0) tryCount = 1
+            val offset = (tryCount - 1) * PageCount
 
-        val pages = ctx.safeAsync {
-            val total = awaitResult<Long> { redisClient.zcard(RedisKey.Recommend_Key, it) }
-            (total - 1).div(PageCount) + 1
-        }
-        val array = awaitResult<JsonArray> {
-            redisClient.zrevrangebyscore(RedisKey.Recommend_Key, "+inf", "-inf",
-                    RangeLimitOptions().apply {
-                        setLimit(offset.toLong(), PageCount.toLong())
-                    }, it)
-        }
-
-        val ff = array.map { obj ->
-            val f = Future.future<JsonObject>()
-            redisClient.srandmember("${RedisKey.Recommend_Reason}:$obj") {
-                if (it.succeeded()) {
-                    f.complete(json {
-                        obj(
-                                "key" to obj,
-                                "reason" to it.result()
-                        )
-                    })
-                } else {
-                    f.fail(it.cause())
-                }
+            val pages = ctx.safeAsync {
+                val total = awaitResult<Long> { redisClient.zcard(RedisKey.Recommend_Key, it) }
+                (total - 1).div(PageCount) + 1
             }
-            f
-        }
+            val array = awaitResult<JsonArray> {
+                redisClient.zrevrangebyscore(RedisKey.Recommend_Key, "+inf", "-inf",
+                        RangeLimitOptions().apply {
+                            setLimit(offset.toLong(), PageCount.toLong())
+                        }, it)
+            }
 
-        CompositeFuture.join(ff).await()
-        ctx.render(ResultBean.OK(mapOf("data" to ff.map { it.result() }, "pages" to pages.await())))
+            val ff = array.map { obj ->
+                val f = Future.future<JsonObject>()
+                redisClient.srandmember("${RedisKey.Recommend_Reason}:$obj") {
+                    if (it.succeeded()) {
+                        val kvs = Json.decodeValue(obj.toString(), Map::class.java)
+                        f.complete(json {
+                            obj(
+                                    "key" to kvs,
+                                    "reason" to it.result()
+                            )
+                        })
+                    } else {
+                        f.fail(it.cause())
+                    }
+                }
+                f
+            }
+
+            CompositeFuture.join(ff).await()
+            ctx.render(ResultBean.OK(mapOf("data" to ff.map { it.result() }, "pages" to pages.await())))
+        } catch (e: Exception) {
+            logger.error(e)
+            ctx.fail(e)
+        }
     }
 }

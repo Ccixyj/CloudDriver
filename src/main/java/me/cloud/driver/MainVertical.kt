@@ -53,6 +53,7 @@ class MainVertical : CoroutineVerticle() {
 
     override suspend fun stop() {
         super.stop()
+        logger.warn("verticlel stop")
     }
 
 
