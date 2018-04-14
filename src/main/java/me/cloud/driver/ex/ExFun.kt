@@ -3,9 +3,11 @@ package me.cloud.driver.ex
 import io.vertx.core.Vertx
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.Json
+import io.vertx.core.logging.LoggerFactory
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.experimental.CoroutineStart
 import kotlinx.coroutines.experimental.Job
 import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.launch
@@ -18,6 +20,7 @@ fun <T> Vertx.safeLaunch(fn: suspend () -> T): Job {
     }
 }
 
+private val logger = LoggerFactory.getLogger("CoroutineHandler")
 //Route
 fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit) {
     handler { ctx ->
@@ -25,6 +28,7 @@ fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit) {
             try {
                 fn(ctx)
             } catch (e: Exception) {
+                logger.warn("error : ${e.message}")
                 ctx.response().end(Json.encode(ResultBean.Error(e.message ?: e.stackTrace.joinToString())))
             }
         }
@@ -38,7 +42,7 @@ fun <T> RoutingContext.safeLaunch(fn: suspend () -> T): Job {
     }
 }
 
-fun <T> RoutingContext.safeAsync(fn: suspend () -> T) = async(this.vertx().dispatcher()) { fn.invoke() }
+fun <T> RoutingContext.safeAsync(start: CoroutineStart = CoroutineStart.DEFAULT, fn: suspend () -> T) = async(this.vertx().dispatcher()) { fn.invoke() }
 
 fun RoutingContext.render(obj: Any) {
     this.response().putHeader(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8")

@@ -14,11 +14,15 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.redis.RedisClient
 import io.vertx.redis.op.RangeLimitOptions
+import kotlinx.coroutines.experimental.CoroutineStart
 import me.cloud.driver.DEPLOYS
 import me.cloud.driver.c.RedisKey
 import me.cloud.driver.ex.render
 import me.cloud.driver.ex.safeAsync
 import me.cloud.driver.vo.ResultBean
+import java.time.Duration
+import java.time.LocalDateTime
+import java.time.LocalTime
 
 private val logger = LoggerFactory.getLogger(Router::class.java.name)
 private const val DaySeconds = 60 * 60 * 24L
@@ -51,10 +55,18 @@ class Router(vertx: Vertx) {
         try {
             if (!uid.isNullOrBlank() && !key.isNullOrBlank()) {
                 val setKey = RedisKey.Recommend_Count + ":$uid"
-                val c = awaitResult<String?> { redisClient.get(setKey, it) }
-                if (c == null) {
+                val now = LocalDateTime.now()
+                val gap = fun(): Long {
+
+                    val nexMidNight = LocalDateTime.of(now.plusDays(1).toLocalDate(), LocalTime.MIDNIGHT)
+                    return Duration.between(now, nexMidNight).toMillis()
+                }() //与下一天零点时间差（毫秒）
+                logger.debug("gap : $gap")
+                val c = ctx.safeAsync(CoroutineStart.LAZY) { awaitResult<String?> { redisClient.get(setKey, it) } }
+                if (gap <= 1000 || c.await() == null) { //允许1s误差
                     redisClient.set(setKey, "1", null)
-                    redisClient.expire(setKey, DaySeconds, null)
+
+                    redisClient.expire(setKey, DaySeconds - 1, null)
                     isAdd = true
                     ctx.render(ResultBean.MSG("点赞成功！"))
                 } else {

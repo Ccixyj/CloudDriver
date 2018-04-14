@@ -24,7 +24,7 @@ class MainVertical : CoroutineVerticle() {
         router.route("/*").handler(TimeoutHandler.create())
         router.route("/*").handler {
             logger.info("Match route ----------------- " + LocalDateTime.now() + " ------------------------------")
-            logger.info("Method       : " + it.request().method() + "  Path         : ${it.request().uri()}")
+            logger.info("Method       : " + it.request().method() + "   ${it.request().uri()}")
             logger.info("User-Agent   : " + it.request().getHeader("User-Agent"))
             val params = it.request().params()
             logger.info("Params       : " + Json.encode(params?.entries() ?: "[]"))
