@@ -3,7 +3,6 @@ package me.cloud.driver.route
 import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.core.Vertx
-import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.Json
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
@@ -15,7 +14,9 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.redis.RedisClient
 import io.vertx.redis.op.RangeLimitOptions
+import me.cloud.driver.DEPLOYS
 import me.cloud.driver.c.RedisKey
+import me.cloud.driver.ex.render
 import me.cloud.driver.ex.safeAsync
 import me.cloud.driver.vo.ResultBean
 
@@ -28,17 +29,14 @@ class Router(vertx: Vertx) {
     private val redisClient = RedisClient.create(vertx).apply {
         this.configGet("*") {
             if (it.succeeded()) {
-                me.cloud.driver.route.logger.info("redis start success ${it.result()}")
+                logger.info("redis start success ${it.result().take(3)}")
             } else {
-                me.cloud.driver.route.logger.error("redis start success ${it.cause()}")
+                logger.error("redis start error ${it.cause()}")
+                DEPLOYS.forEach { vertx.undeploy(it) }
             }
         }
     }
 
-    fun RoutingContext.render(obj: Any) {
-        this.response().putHeader(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8")
-        this.response().end(Json.encode(obj))
-    }
 
     suspend fun putRecommend(ctx: RoutingContext) {
         val uid = ctx.request().getParam("uid")
@@ -78,10 +76,10 @@ class Router(vertx: Vertx) {
             if (isAdd) {
                 redisClient.zadd(RedisKey.Recommend_Key, score.await()?.toDouble()?.inc() ?: 1.0, key, null)
                 if (!reason.isNullOrBlank()) {
-                    val setkey = RedisKey.Recommend_Reason + ":$key"
-                    redisClient.sadd(setkey, reason, null)
+                    val setKey = RedisKey.Recommend_Reason + ":$key"
+                    redisClient.sadd(setKey, reason, null)
                     //save week
-                    redisClient.expire(setkey, DaySeconds * 7, null)
+                    redisClient.expire(setKey, DaySeconds * 7, null)
                 }
 
             }

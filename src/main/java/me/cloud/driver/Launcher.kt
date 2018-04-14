@@ -11,15 +11,18 @@ import kotlinx.coroutines.experimental.runBlocking
 
 
 private val logger by lazy { LoggerFactory.getLogger(Launcher::class.java) }
-val vertx by lazy { Vertx.vertx() }
+val VERTX: Vertx by lazy { Vertx.vertx() }
+val DEPLOYS: MutableList<String> = arrayListOf()
 
 fun main(args: Array<String>) {
     //Force to use slf4j
+    DEPLOYS.clear()
     System.setProperty(LOGGER_DELEGATE_FACTORY_CLASS_NAME, "io.vertx.core.logging.SLF4JLogDelegateFactory")
     runBlocking {
         Json.mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL)
-        val res = awaitResult<String> { vertx.deployVerticle(MainVertical(), it) }
+        val res = awaitResult<String> { VERTX.deployVerticle(MainVertical(), it) }
         logger.info("deploy result :$res")
+        DEPLOYS.add(res)
     }
 }
 
