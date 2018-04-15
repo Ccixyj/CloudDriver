@@ -116,17 +116,20 @@ class Router(vertx: Vertx) {
                 redisClient.zrevrangebyscore(RedisKey.Recommend_Key, "+inf", "-inf",
                         RangeLimitOptions().apply {
                             setLimit(offset.toLong(), PageCount.toLong())
+                            useWithScores()
                         }, it)
-            }
+            }.chunked(2){ it.component1().toString() to it.component2().toString().toIntOrNull() }
+
 
             val ff = array.map { obj ->
                 val f = Future.future<JsonObject>()
-                redisClient.srandmember("${RedisKey.Recommend_Reason}:$obj") {
+                redisClient.srandmember("${RedisKey.Recommend_Reason}:${obj.first}") {
                     if (it.succeeded()) {
-                        val kvs = Json.decodeValue(obj.toString(), Map::class.java)
+                        val kvs = Json.decodeValue(obj.first, Map::class.java)
                         f.complete(json {
                             obj(
                                     "key" to kvs,
+                                    "score" to obj.second,
                                     "reason" to it.result()
                             )
                         })
@@ -138,7 +141,7 @@ class Router(vertx: Vertx) {
             }
 
             CompositeFuture.join(ff).await()
-            ctx.render(ResultBean.OK(mapOf("data" to ff.map { it.result() }, "pages" to pages.await())))
+            ctx.render(ResultBean.OK(mapOf("data" to ff.map { java.util.Base64.getUrlEncoder().encodeToString(it.result().toBuffer().bytes) }, "pages" to pages.await())))
         } catch (e: Exception) {
             logger.error(e)
             ctx.fail(e)
