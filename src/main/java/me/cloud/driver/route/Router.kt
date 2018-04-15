@@ -48,10 +48,10 @@ class Router(vertx: Vertx) {
         val reason = ctx.request().getParam("reason")?.trim()
         var isAdd = false
         val score = ctx.safeAsync { awaitResult<String?> { redisClient.zscore(RedisKey.Recommend_Key, key, it) } }
-        logger.info("putRecommend")
-        logger.info("uid :$uid")
-        logger.info("key : $key")
-        logger.info("reason : $reason")
+        logger.debug("putRecommend")
+        logger.debug("uid :$uid")
+        logger.debug("key : $key")
+        logger.debug("reason : $reason")
         try {
             if (!uid.isNullOrBlank() && !key.isNullOrBlank()) {
                 val setKey = RedisKey.Recommend_Count + ":$uid"
@@ -75,15 +75,15 @@ class Router(vertx: Vertx) {
                         isAdd = true
                         ctx.render(ResultBean.MSG("点赞成功！"))
                     } else {
-                        ctx.render(ResultBean.Error("一天点赞最多3次"))
+                        error("一天点赞最多3次")
                     }
                 }
             } else {
-                ctx.render(ResultBean.Error("缺少参数"))
+                error("缺少参数")
             }
         } catch (e: Exception) {
             logger.error(e)
-            ctx.fail(e)
+            throw  e
         } finally {
             if (isAdd) {
                 redisClient.zadd(RedisKey.Recommend_Key, score.await()?.toDouble()?.inc() ?: 1.0, key, null)

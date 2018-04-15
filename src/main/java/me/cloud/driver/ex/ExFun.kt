@@ -29,7 +29,7 @@ fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit) {
                 fn(ctx)
             } catch (e: Exception) {
                 logger.warn("error : ${e.message}")
-                ctx.response().end(Json.encode(ResultBean.Error(e.message ?: e.stackTrace.joinToString())))
+                ctx.render(ResultBean.Error(e.message ?: e.stackTrace.joinToString()))
             }
         }
     }
