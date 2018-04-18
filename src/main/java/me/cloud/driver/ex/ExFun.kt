@@ -43,6 +43,7 @@ fun <T> RoutingContext.safeLaunch(fn: suspend () -> T): Job {
 }
 
 fun <T> RoutingContext.safeAsync(start: CoroutineStart = CoroutineStart.DEFAULT, fn: suspend () -> T) = async(this.vertx().dispatcher()) { fn.invoke() }
+fun <T> Vertx.safeAsync(start: CoroutineStart = CoroutineStart.DEFAULT, fn: suspend () -> T) = async(this.dispatcher()) { fn.invoke() }
 
 fun RoutingContext.render(obj: Any) {
     this.response().putHeader(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8")

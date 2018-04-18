@@ -14,8 +14,9 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.redis.RedisClient
 import io.vertx.redis.op.RangeLimitOptions
+import io.vertx.redis.op.SetOptions
 import kotlinx.coroutines.experimental.CoroutineStart
-import me.cloud.driver.DEPLOYS
+import me.cloud.driver.DEPLOYS_RESULTS
 import me.cloud.driver.c.RedisKey
 import me.cloud.driver.ex.render
 import me.cloud.driver.ex.safeAsync
@@ -36,7 +37,7 @@ class Router(vertx: Vertx) {
                 logger.info("redis start success ${it.result().take(3)}")
             } else {
                 logger.error("redis start error ${it.cause()}")
-                DEPLOYS.forEach { vertx.undeploy(it) }
+                DEPLOYS_RESULTS.forEach { vertx.undeploy(it) }
             }
         }
     }
@@ -46,37 +47,56 @@ class Router(vertx: Vertx) {
         val uid = ctx.request().getParam("uid")
         val key = ctx.request().getParam("key")?.trim()
         val reason = ctx.request().getParam("reason")?.trim()
-        var isAdd = false
-        val score = ctx.safeAsync { awaitResult<String?> { redisClient.zscore(RedisKey.Recommend_Key, key, it) } }
+        var score = 0 //需要增减的分数
+        var isAdd = false //是否添加
         logger.debug("putRecommend")
         logger.debug("uid :$uid")
         logger.debug("key : $key")
         logger.debug("reason : $reason")
+
         try {
             if (!uid.isNullOrBlank() && !key.isNullOrBlank()) {
-                val setKey = RedisKey.Recommend_Count + ":$uid"
+                val countSetKey = RedisKey.Recommend_Count + ":$uid"
                 val now = LocalDateTime.now()
                 val gap = fun(): Long {
-
                     val nexMidNight = LocalDateTime.of(now.plusDays(1).toLocalDate(), LocalTime.MIDNIGHT)
                     return Duration.between(now, nexMidNight).toMillis()
                 }() //与下一天零点时间差（毫秒）
                 logger.debug("gap : $gap")
-                val c = ctx.safeAsync(CoroutineStart.LAZY) { awaitResult<String?> { redisClient.get(setKey, it) } }
-                if (gap <= 1000 || c.await() == null) { //允许1s误差
-                    redisClient.set(setKey, "1", null)
-
-                    redisClient.expire(setKey, DaySeconds - 1, null)
+                val hjson = ctx.safeAsync(CoroutineStart.LAZY) { awaitResult<JsonObject> { redisClient.hgetall(countSetKey, it) } }
+                val hp = JsonObject().put("key", key).put("count", "1").put("reason", reason)
+                //add ，成功+1分
+                fun setNewIn(key: String, jsonObject: JsonObject): Int {
+                    redisClient.setWithOptions(RedisKey.ShadowKey + key, "", SetOptions().setEX(DaySeconds - 1), null)
+                    redisClient.hmset(countSetKey, jsonObject, null)
                     isAdd = true
-                    ctx.render(ResultBean.MSG("点赞成功！"))
+                    return 1
+                }
+                //没有，先设置
+                if (hjson.await().isEmpty) {
+                    score += setNewIn(countSetKey, hp)
                 } else {
-                    val count = awaitResult<Long> { redisClient.incr(setKey, it) }
+                    val count = awaitResult<Long> { redisClient.hincrby(countSetKey, "count", 1, it) }
                     if (count <= 3) {
                         isAdd = true
-                        ctx.render(ResultBean.MSG("点赞成功！"))
+                        score += 1
                     } else {
+                        // 减去插值
+                        score = 3 - count.toInt()
                         error("一天点赞最多3次")
                     }
+                }
+
+                if (gap <= 1000) { //允许1s误差,防止订阅延迟 1s内马上下一天
+                    val count = awaitResult<String?> { redisClient.hget(countSetKey, "count", it) }?.toIntOrNull() ?: -1
+                    logger.debug("gap < 1000 :$count")
+                    if (count > 0) {
+                        //预先删除
+                        redisClient.del(RedisKey.ShadowKey + countSetKey, null)
+                        redisClient.del(countSetKey, null)
+                        score -= count
+                    }
+                    score += setNewIn(countSetKey, hp)
                 }
             } else {
                 error("缺少参数")
@@ -85,15 +105,20 @@ class Router(vertx: Vertx) {
             logger.error(e)
             throw  e
         } finally {
+            logger.debug("inc score :$score")
+            if (score != 0) {
+                //改变分数
+                redisClient.zincrby(RedisKey.Recommend_Key, score.toDouble(), key, null)
+            }
             if (isAdd) {
-                redisClient.zadd(RedisKey.Recommend_Key, score.await()?.toDouble()?.inc() ?: 1.0, key, null)
+                ctx.render(ResultBean.MSG("点赞成功！"))
                 if (!reason.isNullOrBlank()) {
+                    logger.debug("add reason :$reason")
                     val setKey = RedisKey.Recommend_Reason + ":$key"
                     redisClient.sadd(setKey, reason, null)
                     //save week
                     redisClient.expire(setKey, DaySeconds * 7, null)
                 }
-
             }
         }
 
@@ -113,12 +138,12 @@ class Router(vertx: Vertx) {
                 (total - 1).div(PageCount) + 1
             }
             val array = awaitResult<JsonArray> {
-                redisClient.zrevrangebyscore(RedisKey.Recommend_Key, "+inf", "-inf",
+                redisClient.zrevrangebyscore(RedisKey.Recommend_Key, "+inf", "1",
                         RangeLimitOptions().apply {
                             setLimit(offset.toLong(), PageCount.toLong())
                             useWithScores()
                         }, it)
-            }.chunked(2){ it.component1().toString() to it.component2().toString().toIntOrNull() }
+            }.chunked(2) { it.component1().toString() to it.component2().toString().toIntOrNull() }
 
 
             val ff = array.map { obj ->

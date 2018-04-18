@@ -12,5 +12,8 @@ object RedisKey {
     const val Recommend = "Recommend"
     const val Recommend_Count = "$Recommend:count"
     const val Recommend_Key = "$Recommend:key"
-    const val Recommend_Reason= "$Recommend:reason"
+    const val Recommend_Reason = "$Recommend:reason"
+
+    //pub - sub can not get value
+    const val ShadowKey = "shadowkey:"
 }
